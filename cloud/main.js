@@ -1,15 +1,49 @@
+var _ = require('underscore');
 var oauth = require("cloud/libs/oauth.js");
 
 Parse.Cloud.job("twitterFeed", function(request, status) {
 
 	Parse.Cloud.useMasterKey();
 
-	// This is the Twitter user you want Tweets from, excluding the '@'
-	var screenName = "nannerb";
+	// These are the Twitter users you want Tweets from, excluding the '@'
+	var screenNames = [
+		"nannerb",
+		"parseit"
+	];
+
+	var promise = Parse.Promise.as();
+
+	_.each(screenNames, function(screenName){
+
+		promise = promise.then(function(){
+
+			return getTweets(screenName);
+
+		});
+
+	});
+
+	Parse.Promise.when(promise).then(function(){
+
+		status.success("Tweets saved");
+
+	}, function(error){
+
+		status.error("Tweets failed to update");
+
+	});
+
+});
+
+function getTweets(screenName){
+
+	var promise = new Parse.Promise();
 
 	var Tweets = Parse.Object.extend("Tweets");
 
 	var query = new Parse.Query(Tweets);
+
+	query.equalTo("screen_name", screenName);
 
 	query.descending("id_str")
 
@@ -21,7 +55,7 @@ Parse.Cloud.job("twitterFeed", function(request, status) {
 			// If this is the first time this script has run, then we need don't
 			// need to have the since_id param
 
-			var urlLink = "https://api.twitter.com/1.1/statuses/user_timeline.json?screen_name=" + screenName + "&exclude_replies=true&include_rts=false";
+			var urlLink = "https://api.twitter.com/1.1/statuses/user_timeline.json?screen_name=" + screenName + "&exclude_replies=true&include_rts=false&count=100";
 
 		} else {
 
@@ -73,11 +107,9 @@ Parse.Cloud.job("twitterFeed", function(request, status) {
 			headers: {
 			   Authorization: 'OAuth oauth_consumer_key="'+oauth_consumer_key+'", oauth_nonce=' + nonce + ', oauth_signature=' + encodedSig + ', oauth_signature_method="HMAC-SHA1", oauth_timestamp=' + timestamp + ',oauth_token="'+oauth_token+'", oauth_version="1.0"'
 			},
-			success: function(httpResponse) {
+			success: function(httpResponse) { 
 	 
 				var data = JSON.parse(httpResponse.text);
-
-				console.log(data);
 
 				var tweets = new Array();
 
@@ -94,6 +126,7 @@ Parse.Cloud.job("twitterFeed", function(request, status) {
 					tweet.set("favorite_count", content.favorite_count);
 					tweet.set("retweeted", content.retweeted);
 					tweet.set("id_str", content.id_str);
+					tweet.set("screen_name", screenName);
 				 
 					tweets.push(tweet);
 
@@ -102,22 +135,24 @@ Parse.Cloud.job("twitterFeed", function(request, status) {
 				Parse.Object.saveAll(tweets, {
 					success: function(objs) {
 
-						status.success("Tweets updated");
+						promise.resolve();
 				 
 					},
 					error: function(error) {
 						console.log(error);
-						status.error(error.message);
+						promise.reject(error.message);
 					}
 				});
 
 			},
 			error: function(error) {
 				console.log(error);
-				status.error(error.message);
+				promise.reject(error.message);
 			}
 		});
 
 	});
 
-});
+	return promise;
+
+}
